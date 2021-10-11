@@ -1,0 +1,66 @@
+#!/bin/bash
+set -eu
+
+function usage() {
+	echo "$0 [OPTION]... PID [PID]..."
+	echo
+	echo 'Wait until all PIDs terminate.'
+	echo
+	echo 'Options:'
+	echo ' -h, --help              Show this usage message'
+	echo ' -s, --sleep-interval=N  Check processes at least once every N seconds'
+	echo '                         (default 0.5)'
+}
+
+PIDS=()
+SLEEP=0.5
+
+# Parse arguments
+while (( $# )); do
+	case $1 in
+		-h|--help)
+			usage
+			exit 0
+			;;
+		-s|--sleep-interval)
+			SLEEP="$2"
+			shift 2
+			;;
+		--sleep-interval=*)
+			SLEEP="${1#--sleep-interval=}"
+			shift
+			;;
+		-*)
+			# No other options
+			usage > /dev/stderr
+			exit 1
+			;;
+		*)
+			PIDS+=("$1")
+			shift
+			;;
+	esac
+done
+
+# Check if we have at least one parameter
+if (( ${#PIDS[@]} == 0)); then
+	usage > /dev/stderr
+	exit 1
+fi
+
+# We use `tail` to wait for PIDs, and then `wait` to wait for the `tail` processes.
+# We cannot `wait` for the PIDs directly, since `wait` on waits for subprocesses of
+# the current shell.
+
+# Start `tail` processes, waiting for PIDs
+TPIDS=()
+for PID in "${PIDS[@]}"; do
+	tail -f -s "$SLEEP" --pid "$PID" /dev/null &
+	TPIDS+=($!)
+done
+
+# Wait for all the `tail` processes.
+# We do this one by one, since we want to check all processes for their exit status
+for TPID in "${TPIDS[@]}"; do
+	wait -f "$TPID"
+done
